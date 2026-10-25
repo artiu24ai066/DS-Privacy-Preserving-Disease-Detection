@@ -1,0 +1,49 @@
+# ── Dataset (too large for git) ───────────────────────────────────────────────
+/chest_xray/
+
+# ── Python cache ──────────────────────────────────────────────────────────────
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# ── Virtual environments ──────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+.env/
+
+# ── Jupyter / IPython ────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb
+
+# ── Model checkpoints (can be large) ─────────────────────────────────────────
+*.pt
+*.pth
+*.ckpt
+
+# ── Results / generated plots (optional — remove these lines if you want
+#    to commit your results CSV and plots) ────────────────────────────────────
+results/plots/
+# results/metrics.csv   ← keep this commented if you want to commit results
+
+# ── macOS junk ────────────────────────────────────────────────────────────────
+.DS_Store
+**/.DS_Store
+__MACOSX/
+
+# ── Windows junk ─────────────────────────────────────────────────────────────
+Thumbs.db
+desktop.ini
+
+# ── IDE / editor ──────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── Secrets / env files ───────────────────────────────────────────────────────
+.env
+*.env
+secrets.py

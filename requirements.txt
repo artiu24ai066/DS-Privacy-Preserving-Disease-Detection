@@ -1,0 +1,19 @@
+# Core ML stack
+# Install PyTorch separately (CPU): 
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+# Install PyTorch separately (GPU/CUDA 12.1):
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+torch
+torchvision
+
+# Differential privacy (requires torch)
+opacus>=1.4.0
+
+# Data science
+numpy
+pandas
+scikit-learn
+matplotlib
+seaborn
+Pillow
+tqdm
