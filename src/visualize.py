@@ -15,9 +15,11 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 sys.path.insert(0, os.path.dirname(__file__))
+import config
+from config import TRAIN_DIR, TEST_DIR
 from evaluate import PLOTS_DIR
 
-RESULTS_CSV = os.path.join(os.path.dirname(__file__), "..", "results", "metrics.csv")
+RESULTS_CSV = config.METRICS_CSV
 
 
 def load_results() -> pd.DataFrame:
@@ -80,8 +82,14 @@ def plot_training_time(df: pd.DataFrame):
 # ── Plot 3: Reservoir sampling — performance vs data size ─────────────────────
 def plot_reservoir_effect(df: pd.DataFrame):
     """Shows how F1 and recall change with sampling fraction."""
-    # Filter experiments with sampling info
-    rs_rows = df[df["experiment"].str.contains("RS|Centralized|No DP|DP$", regex=True)].copy()
+    reservoir_experiments = [
+        "E3 - Federated + DP",
+        "E4a - FL+DP+RS50%",
+        "E4b - FL+DP+RS25%",
+    ]
+    rs_rows = df[df["experiment"].isin(reservoir_experiments)].copy()
+    rs_rows["sampling_frac"] = pd.to_numeric(rs_rows["sampling_frac"])
+    rs_rows = rs_rows.sort_values("sampling_frac", ascending=False)
 
     if len(rs_rows) < 2:
         print("  Not enough reservoir experiments to plot (need E3, E4a, E4b).")
@@ -151,7 +159,7 @@ def plot_recall_focus(df: pd.DataFrame):
     bars    = ax.bar(df["experiment"], df["recall"], color=colors, alpha=0.85)
 
     ax.axhline(0.85, color="gray", linestyle="--", linewidth=1,
-               label="Clinical target (0.85)")
+               label="Reference line (0.85)")
     ax.set_ylim(0, 1.10)
     ax.set_ylabel("Recall (Sensitivity)")
     ax.set_title("Recall Across Experiments\n"
@@ -173,15 +181,20 @@ def plot_recall_focus(df: pd.DataFrame):
 
 
 # ── Plot 6: Class distribution (EDA helper) ───────────────────────────────────
-def plot_class_distribution(train_dir: str, test_dir: str):
+def plot_class_distribution(train_dir: str = None, test_dir: str = None):
     """Called separately from the EDA notebook, but also usable standalone."""
+    if train_dir is None:
+        train_dir = TRAIN_DIR
+    if test_dir is None:
+        test_dir = TEST_DIR
+
     from data_loader import ChestXRayDataset, make_train_val_split
 
-    raw_train = ChestXRayDataset(train_dir)
+    raw_train = ChestXRayDataset(train_dir, transform=None)
     labels    = raw_train.get_labels()
     train_idx, val_idx = make_train_val_split(train_dir, 0.20)
 
-    test_ds = ChestXRayDataset(test_dir)
+    test_ds = ChestXRayDataset(test_dir, transform=None)
     test_labels = test_ds.get_labels()
 
     splits = {
@@ -225,6 +238,7 @@ def print_summary_table(df: pd.DataFrame):
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
+    plot_class_distribution()   # uses config paths by default
     df = load_results()
     print_summary_table(df)
     plot_comparison(df)

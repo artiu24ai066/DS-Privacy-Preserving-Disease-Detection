@@ -22,14 +22,22 @@ from PIL import Image
 # Allow imports from src/
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
+import config
+from config import make_output_dirs
 from data_loader import (
     ChestXRayDataset, dataset_summary,
     make_train_val_split, get_eval_transform,
 )
 
+TRAIN_DIR = config.TRAIN_DIR
+TEST_DIR  = config.TEST_DIR
+PLOTS_DIR = str(config.PLOTS_DIR)
+make_output_dirs()
+
 BASE_DIR  = os.path.join(os.path.dirname(__file__), "..")
-TRAIN_DIR = os.path.join(BASE_DIR, "chest_xray", "train")
-TEST_DIR  = os.path.join(BASE_DIR, "chest_xray", "chest_xray", "test")
+DATA_DIR  = os.path.join(BASE_DIR, "chest_xray")
+TRAIN_DIR = os.path.join(DATA_DIR, "train")
+TEST_DIR  = os.path.join(DATA_DIR, "test")
 PLOTS_DIR = os.path.join(BASE_DIR, "results", "plots")
 os.makedirs(PLOTS_DIR, exist_ok=True)
 

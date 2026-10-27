@@ -140,15 +140,24 @@ def plot_training_times(results_csv: str, save_name: str = "training_times.png")
 # ── Results CSV helper ────────────────────────────────────────────────────────
 def save_result(row: dict, csv_path: str):
     """
-    Appends one experiment result to the master CSV.
+    Writes one experiment result to the master CSV.
+    If the file already exists and contains a row with the same
+    'experiment' value, the old row is replaced rather than duplicated.
     Creates the file with headers if it does not exist.
     """
     df_new = pd.DataFrame([row])
     if os.path.exists(csv_path):
         df_existing = pd.read_csv(csv_path)
+        # Drop any pre-existing rows for this experiment
+        if "experiment" in df_existing.columns and "experiment" in row:
+            df_existing = df_existing[
+                df_existing["experiment"] != row["experiment"]
+            ]
         df_combined = pd.concat([df_existing, df_new], ignore_index=True)
     else:
         df_combined = df_new
+    # Ensure parent directory exists
+    os.makedirs(os.path.dirname(os.path.abspath(csv_path)), exist_ok=True)
     df_combined.to_csv(csv_path, index=False)
     print(f"  Result saved → {csv_path}")
 
