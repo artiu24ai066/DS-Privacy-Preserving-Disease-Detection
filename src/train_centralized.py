@@ -36,7 +36,7 @@ import config
 from config import (
     TRAIN_DIR, TEST_DIR, METRICS_CSV, CHECKPOINT_DIR,
     BATCH_SIZE, LEARNING_RATE, SEED, VAL_FRACTION,
-    make_output_dirs,
+    UNFREEZE_LAST_N, make_output_dirs,
 )
 from data_loader import get_loaders, dataset_summary, get_class_weights
 from model       import build_model, count_parameters
@@ -89,8 +89,10 @@ def run():
         seed=SEED,
     )
 
-    model = build_model(num_classes=2, freeze_backbone=True).to(DEVICE)
-    print(f"\n  Trainable parameters: {count_parameters(model):,}")
+    model = build_model(num_classes=2, freeze_backbone=True,
+                        unfreeze_last_n=UNFREEZE_LAST_N).to(DEVICE)
+    print(f"\n  Trainable parameters: {count_parameters(model):,}"
+          f"  (unfreeze_last_n={UNFREEZE_LAST_N})")
 
     # Class-weighted loss to counteract the 74.3% PNEUMONIA imbalance.
     # Without weights, CE loss is minimised by predicting PNEUMONIA for all

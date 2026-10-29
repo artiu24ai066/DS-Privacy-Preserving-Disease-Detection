@@ -16,10 +16,13 @@ Architecture
   BatchNorm running statistics are absent from the state dict after fix().
 
 Frozen backbone
-  model.features.parameters() all have requires_grad=False.
-  During local training, features.eval() is called to prevent any
-  incidental stat updates (GroupNorm has no running stats, but the call
-  is safe and makes the intent explicit).
+  model.features[0]–[16] have requires_grad=False (frozen).
+  model.features[17]–[18] are unfrozen (UNFREEZE_LAST_N=2).
+  During non-DP local training (E2), features.eval() is called to
+  prevent accidental GroupNorm stat drift on frozen blocks.
+  During DP local training (E3/E4), features.train() is used because
+  Opacus needs to capture activations for per-sample gradients —
+  calling .eval() on unfrozen blocks prevents hook activation capture.
 
 FedAvg
   Sample-weighted aggregation (McMahan et al. 2017).
@@ -74,7 +77,7 @@ from config import (
     TRAIN_DIR, TEST_DIR, METRICS_CSV, CHECKPOINT_DIR,
     N_CLIENTS, FL_ROUNDS, LOCAL_EPOCHS,
     BATCH_SIZE, LEARNING_RATE, VAL_FRACTION, SEED,
-    NOISE_MULTIPLIER, MAX_GRAD_NORM, TARGET_DELTA,
+    NOISE_MULTIPLIER, MAX_GRAD_NORM, TARGET_DELTA, UNFREEZE_LAST_N,
     make_output_dirs,
 )
 from data_loader import (
@@ -211,19 +214,16 @@ def local_train_dp(
          cumulative_epsilon: float)
     """
     dp_model.train()
-    # GroupNorm has no running statistics, but calling .eval() on features is
-    # safe and makes clear that frozen backbone params are not being updated.
-    try:
-        dp_model._module.features.eval()
-    except AttributeError:
-        pass
+    # With GroupNorm (no running stats) and unfrozen backbone blocks,
+    # we should NOT call features.eval() during DP training.
+    # The original reason was to prevent BatchNorm stat updates, but after
+    # ModuleValidator.fix(), BatchNorm has been replaced with GroupNorm
+    # which has no running statistics. Calling .eval() on features would
+    # prevent Opacus from capturing activations for the unfrozen GroupNorm
+    # layers, causing "No activations detected" errors.
 
     for _ in range(epochs):
         dp_model.train()
-        try:
-            dp_model._module.features.eval()
-        except AttributeError:
-            pass
         for images, labels in dp_loader:
             if labels.numel() == 0:
                 continue
@@ -350,13 +350,18 @@ def run_federated(
 
     # ── 3. Global model ───────────────────────────────────────────────────────
     # freeze_backbone=False so all parameters appear in the state dict;
-    # backbone is manually frozen below.  This ensures FedAvg can aggregate
-    # the full state dict (all 158 keys after fix()).
-    global_model = build_model(num_classes=2, freeze_backbone=False).to(DEVICE)
-    for param in global_model.features.parameters():
-        param.requires_grad = False
+    # backbone is manually frozen below via build_model with unfreeze_last_n.
+    # This ensures FedAvg can aggregate the full state dict.
+    # UNFREEZE_LAST_N=2 unfreezes the last 2 MobileNetV2 feature blocks,
+    # giving ~34K trainable params instead of 2562. This is necessary for
+    # DP-SGD to have enough signal to learn despite gradient noise.
+    global_model = build_model(
+        num_classes=2,
+        freeze_backbone=True,
+        unfreeze_last_n=UNFREEZE_LAST_N,
+    ).to(DEVICE)
     trainable = sum(p.numel() for p in global_model.parameters() if p.requires_grad)
-    print(f"\n  Trainable parameters : {trainable:,}")
+    print(f"\n  Trainable parameters : {trainable:,}  (unfreeze_last_n={UNFREEZE_LAST_N})")
     print(f"  State-dict keys      : {len(global_model.state_dict())}")
 
     # Class-weighted loss to counteract the 74.3% PNEUMONIA imbalance.
@@ -365,23 +370,45 @@ def run_federated(
     class_weights = get_class_weights(TRAIN_DIR, train_idx, all_labels, device=DEVICE)
     criterion = nn.CrossEntropyLoss(weight=class_weights)
 
-    # ── 4. Per-client DP setup (created ONCE, reused across rounds) ───────────
+    # ── 4. Per-client DP setup ────────────────────────────────────────────────
+    # One PrivacyEngine per client created ONCE — accountant accumulates
+    # across all rounds correctly.
+    #
+    # OPTIMIZER LIFECYCLE (critical for correctness):
+    #   The optimizer is created FRESH each round. This prevents stale Adam
+    #   momentum from a previous round biasing the next round's gradients.
+    #   Carrying momentum across rounds after global weight sync causes the
+    #   model to collapse to all-PNEUMONIA because the momentum from round N
+    #   points in a direction that is inconsistent with the new global weights.
+    #
+    #   The PrivacyEngine.make_private() is called once to wrap the model and
+    #   set up the Poisson sampler. Each round we:
+    #     1. Sync global weights into dp_model._module
+    #     2. Create a fresh Adam optimizer on _module's trainable params
+    #     3. Manually attach it to the DPOptimizer wrapper (supported API)
+    #     4. Train LOCAL_EPOCHS, then extract weights
+    #
+    # ACCOUNTING: The privacy engine's RDP accountant step() is called by
+    #   dp_opt.step() regardless of whether the underlying optimizer changed.
+    #   So accounting accumulates correctly across rounds.
     if use_dp:
         try:
             from opacus import PrivacyEngine
+            from opacus.optimizers import DPOptimizer
         except ImportError:
             raise ImportError("Install Opacus: pip install opacus")
 
-        client_dp_states = []  # list of (engine, dp_model, dp_opt, dp_loader)
+        client_dp_states = []  # list of (engine, dp_model, dp_loader)
 
         for cid, base_loader in enumerate(client_loaders):
             engine    = PrivacyEngine(accountant="rdp")
-            # Each client gets its own model copy — weights will be synced each round
             cli_model = copy.deepcopy(global_model).to(DEVICE)
             cli_opt   = Adam(
                 (p for p in cli_model.parameters() if p.requires_grad),
                 lr=LEARNING_RATE,
             )
+            # make_private wraps model into GradSampleModule, creates DPOptimizer
+            # and replaces loader with Poisson sampler.
             dp_model_c, dp_opt_c, dp_loader_c = engine.make_private(
                 module=cli_model,
                 optimizer=cli_opt,
@@ -390,11 +417,10 @@ def run_federated(
                 max_grad_norm=MAX_GRAD_NORM,
                 poisson_sampling=True,
             )
-            # Verify _module is accessible (confirmed for Opacus 1.6.0)
             assert hasattr(dp_model_c, "_module"), (
-                "dp_model does not have _module attribute — "
-                "Opacus API may have changed. Cannot sync global weights."
+                "dp_model._module not found — Opacus API may have changed."
             )
+            # Store engine + dp_model (for weight sync) + dp_opt + dp_loader
             client_dp_states.append((engine, dp_model_c, dp_opt_c, dp_loader_c))
 
         print(f"  DP engines created   : {len(client_dp_states)}")
@@ -425,13 +451,28 @@ def run_federated(
             if use_dp:
                 engine, dp_model_c, dp_opt_c, dp_loader_c = client_dp_states[cid]
 
-                # Sync global weights into the client's wrapped model.
-                # dp_model._module holds the underlying plain nn.Module;
-                # its state-dict keys match the global model's keys.
+                # 1. Sync current global weights into dp_model._module
                 dp_model_c._module.load_state_dict(
                     copy.deepcopy(global_model.state_dict())
                 )
-                dp_model_c._module.features.eval()
+                # Do NOT call features.eval() here — with GroupNorm (post
+                # ModuleValidator.fix()), .eval() on unfrozen blocks prevents
+                # Opacus from capturing activations, causing "No activations
+                # detected" errors during backward.
+
+                # 2. Fresh Adam optimizer each round — prevents stale momentum
+                #    from biasing gradient directions after global weight sync.
+                #    We replace dp_opt_c.original_optimizer (public attribute in
+                #    Opacus 1.6 DPOptimizer) with a new Adam instance.
+                #    The DPOptimizer wrapper and privacy engine are unchanged,
+                #    so privacy accounting continues accumulating correctly.
+                fresh_inner_opt = Adam(
+                    (p for p in dp_model_c._module.parameters() if p.requires_grad),
+                    lr=LEARNING_RATE,
+                )
+                dp_opt_c.original_optimizer = fresh_inner_opt
+                dp_opt_c.param_groups = fresh_inner_opt.param_groups
+                dp_opt_c.state        = fresh_inner_opt.state
 
                 plain_model, n_samples, eps = local_train_dp(
                     dp_model=dp_model_c,

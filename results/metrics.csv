@@ -1,2 +1,0 @@
-experiment,n_clients,fl_rounds,local_epochs,batch_size,learning_rate,dp_enabled,noise_multiplier,max_grad_norm,target_delta,epsilon,client_epsilons,privacy_assumption,sampling_frac,n_train_images,training_time_s,accuracy,precision,recall,f1,specificity,roc_auc,TP,TN,FP,FN
-E1 - Centralized,1,0,5,32,0.001,False,,,,,,,1.0,4173,1458.4,0.7933,0.7919,0.9077,0.8459,0.6026,0.8847,354,141,93,36

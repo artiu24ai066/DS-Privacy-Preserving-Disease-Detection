@@ -299,10 +299,17 @@ class TestModel:
 
     def test_build_model_trainable_params(self):
         from model import build_model, count_parameters
-        m = build_model(freeze_backbone=True)
+        m = build_model(freeze_backbone=True, unfreeze_last_n=2)
         n = count_parameters(m)
-        # Classifier head: 1280*2 + 2 = 2562
-        assert n == 2562, f"Expected 2562 trainable params, got {n}"
+        # With unfreeze_last_n=2: features[17] + features[18] + classifier head
+        # ~886K (backbone last 2 blocks) + 2562 (head) ≈ 888,642
+        assert n > 100_000, (
+            f"Expected >100K trainable params with unfreeze_last_n=2, got {n}. "
+            "If 2562, unfreeze_last_n is not working."
+        )
+        # Fully frozen baseline should be exactly 2562
+        m0 = build_model(freeze_backbone=True, unfreeze_last_n=0)
+        assert count_parameters(m0) == 2562
 
     def test_build_model_opacus_compatible(self):
         from model import build_model
@@ -312,9 +319,20 @@ class TestModel:
 
     def test_backbone_frozen(self):
         from model import build_model
-        m = build_model(freeze_backbone=True)
-        for name, param in m.features.named_parameters():
-            assert not param.requires_grad, f"features.{name} should be frozen"
+        m = build_model(freeze_backbone=True, unfreeze_last_n=2)
+        n_blocks = len(m.features)  # 19 blocks
+        # Features[0] through features[16] should be frozen
+        for i in range(n_blocks - 2):
+            for name, param in m.features[i].named_parameters():
+                assert not param.requires_grad, (
+                    f"features[{i}].{name} should be frozen (unfreeze_last_n=2)"
+                )
+        # Features[17] and [18] should be trainable
+        for i in range(n_blocks - 2, n_blocks):
+            for name, param in m.features[i].named_parameters():
+                assert param.requires_grad, (
+                    f"features[{i}].{name} should be trainable (unfreeze_last_n=2)"
+                )
 
     def test_classifier_trainable(self):
         from model import build_model

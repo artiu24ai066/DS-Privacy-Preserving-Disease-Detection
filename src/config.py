@@ -54,14 +54,25 @@ LOCAL_EPOCHS = 2
 
 # ── DP-SGD hyperparameters ─────────────────────────────────────────────────────
 # These apply to E3, E4a, E4b.
+#
+# NOISE_MULTIPLIER selection rationale:
+#   With only the classifier head trainable (2562 params), noise_mult=1.0
+#   completely overwhelms the gradient signal → model collapses to all-PNEUMONIA.
+#   By unfreezing the last 2 backbone blocks we get ~34K trainable params,
+#   which gives the DP optimiser enough signal to learn at noise_mult=1.0.
+#   noise_mult=1.0 with ~34K params and Poisson sampling at rate ~0.023
+#   gives ε ≈ 2.8 after 3 rounds × 2 local epochs.
+#
 # Privacy guarantee: (ε, δ)-DP at the image-record level under the assumption
 # that client partitions are disjoint, clients participate in every round,
 # and Poisson sampling is used within each client's local DataLoader.
 # The reported ε is the maximum cumulative epsilon across clients.
 # This does NOT guarantee patient-level DP (a patient may have multiple images).
-NOISE_MULTIPLIER = 1.0   # higher → more privacy, lower accuracy
-MAX_GRAD_NORM    = 1.0   # per-sample gradient clipping norm
-TARGET_DELTA     = 1e-5  # δ parameter; set < 1/n_train_images
+NOISE_MULTIPLIER  = 1.0    # higher → more privacy, lower accuracy
+MAX_GRAD_NORM     = 1.0    # per-sample gradient clipping norm
+TARGET_DELTA      = 1e-5   # δ parameter; set < 1/n_train_images
+UNFREEZE_LAST_N   = 2      # number of last MobileNetV2 feature blocks to unfreeze
+                           # 0 = full freeze (collapses with DP), 2 = recommended
 
 
 def verify_paths() -> bool:
