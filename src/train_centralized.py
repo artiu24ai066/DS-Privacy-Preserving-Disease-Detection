@@ -38,7 +38,7 @@ from config import (
     BATCH_SIZE, LEARNING_RATE, SEED, VAL_FRACTION,
     make_output_dirs,
 )
-from data_loader import get_loaders, dataset_summary
+from data_loader import get_loaders, dataset_summary, get_class_weights
 from model       import build_model, count_parameters
 from evaluate    import evaluate_model, print_metrics, plot_confusion_matrix, save_result
 
@@ -92,7 +92,16 @@ def run():
     model = build_model(num_classes=2, freeze_backbone=True).to(DEVICE)
     print(f"\n  Trainable parameters: {count_parameters(model):,}")
 
-    criterion = nn.CrossEntropyLoss()
+    # Class-weighted loss to counteract the 74.3% PNEUMONIA imbalance.
+    # Without weights, CE loss is minimised by predicting PNEUMONIA for all
+    # images (the majority class), collapsing specificity to 0.
+    from data_loader import ChestXRayDataset, make_train_val_split
+    raw_ds    = ChestXRayDataset(TRAIN_DIR, transform=None)
+    all_lbl   = raw_ds.get_labels()
+    tr_idx, _ = make_train_val_split(TRAIN_DIR, VAL_FRACTION, SEED)
+    class_weights = get_class_weights(TRAIN_DIR, tr_idx, all_lbl, device=DEVICE)
+
+    criterion = nn.CrossEntropyLoss(weight=class_weights)
     optimizer = Adam(
         (p for p in model.parameters() if p.requires_grad),
         lr=LEARNING_RATE,

@@ -67,9 +67,11 @@ TARGET_DELTA     = 1e-5  # δ parameter; set < 1/n_train_images
 def verify_paths() -> bool:
     """
     Checks that TRAIN_DIR and TEST_DIR exist and contain images.
-    Prints a clear error message if not.
+    Checks all extensions supported by ChestXRayDataset (.jpeg, .jpg, .png).
+    Prints image counts per class and a clear error if anything is missing.
     Returns True if everything looks correct.
     """
+    SUPPORTED_EXTS = ("*.jpeg", "*.jpg", "*.png")
     ok = True
     for name, directory in [("TRAIN_DIR", TRAIN_DIR), ("TEST_DIR", TEST_DIR)]:
         for cls in ("NORMAL", "PNEUMONIA"):
@@ -78,10 +80,15 @@ def verify_paths() -> bool:
                 print(f"[PATH ERROR] {name}/{cls} not found: {p}")
                 ok = False
             else:
-                n = len(list(p.glob("*.jpeg"))) + len(list(p.glob("*.jpg")))
+                n = sum(len(list(p.glob(ext))) for ext in SUPPORTED_EXTS)
                 if n == 0:
-                    print(f"[PATH ERROR] {name}/{cls} exists but contains no images: {p}")
+                    print(
+                        f"[PATH ERROR] {name}/{cls} exists but contains no "
+                        f"supported images (.jpeg/.jpg/.png): {p}"
+                    )
                     ok = False
+                else:
+                    print(f"[config] {name}/{cls}: {n} images found")
     if ok:
         print("[config] Dataset paths verified OK.")
     return ok

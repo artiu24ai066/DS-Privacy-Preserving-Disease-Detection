@@ -25,7 +25,7 @@ env/
 
 # ── Results / generated plots (optional — remove these lines if you want
 #    to commit your results CSV and plots) ────────────────────────────────────
-results/plots/
+results/
 # results/metrics.csv   ← keep this commented if you want to commit results
 
 # ── macOS junk ────────────────────────────────────────────────────────────────

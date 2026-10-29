@@ -124,10 +124,17 @@ def plot_reservoir_effect(df: pd.DataFrame):
 
 # ── Plot 4: Privacy budget vs F1 ─────────────────────────────────────────────
 def plot_privacy_vs_performance(df: pd.DataFrame):
-    dp_df = df[df["dp_enabled"] == True].dropna(subset=["epsilon"])
+    # Parse dp_enabled robustly (CSV stores True/False as strings sometimes)
+    def is_dp(val):
+        return str(val).strip().lower() in ("true", "1", "yes")
+
+    dp_df = df[df["dp_enabled"].apply(is_dp)].copy()
+    dp_df["epsilon"] = pd.to_numeric(dp_df["epsilon"], errors="coerce")
+    dp_df = dp_df.dropna(subset=["epsilon"])
 
     if len(dp_df) < 2:
-        print("  Not enough DP experiments to plot privacy vs performance.")
+        print("  Not enough valid DP epsilon values to plot privacy vs performance.")
+        print("  (Need at least 2 DP experiments with non-NaN epsilon.)")
         return
 
     fig, ax = plt.subplots(figsize=(7, 4))

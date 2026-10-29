@@ -56,9 +56,17 @@ def evaluate_model(
     y_pred = np.array(all_preds)
     y_prob = np.array(all_probs)
 
-    cm = confusion_matrix(y_true, y_pred)
+    # Confusion matrix — handle the case where the model predicts only one class
+    cm = confusion_matrix(y_true, y_pred, labels=[0, 1])
+    # cm is always 2×2 when labels=[0,1] is specified explicitly
     tn, fp, fn, tp = cm.ravel()
     specificity = tn / (tn + fp) if (tn + fp) > 0 else 0.0
+
+    # ROC-AUC requires both classes present in y_true
+    try:
+        roc_auc = roc_auc_score(y_true, y_prob)
+    except ValueError:
+        roc_auc = float("nan")
 
     metrics = {
         "accuracy":    accuracy_score(y_true, y_pred),
@@ -66,7 +74,7 @@ def evaluate_model(
         "recall":      recall_score(y_true, y_pred, zero_division=0),
         "f1":          f1_score(y_true, y_pred, zero_division=0),
         "specificity": specificity,
-        "roc_auc":     roc_auc_score(y_true, y_prob),
+        "roc_auc":     roc_auc,
         "TP": int(tp), "TN": int(tn), "FP": int(fp), "FN": int(fn),
     }
     return metrics

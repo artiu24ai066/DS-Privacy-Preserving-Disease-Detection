@@ -168,7 +168,38 @@ def partition_for_clients(
     return client_indices
 
 
-# ── DataLoader factory ────────────────────────────────────────────────────────
+def get_class_weights(train_dir: str, train_idx: list, labels: list,
+                      device=None) -> "torch.Tensor":
+    """
+    Compute inverse-frequency class weights for CrossEntropyLoss.
+
+    For a dataset with n_normal and n_pneumonia images:
+        w_i = total / (2 * n_i)
+
+    This counteracts the 74.3% PNEUMONIA imbalance that would otherwise
+    cause the model to collapse to predicting the majority class.
+
+    Returns a float32 tensor of shape [2] on the given device.
+    """
+    import torch
+    n_normal    = sum(1 for i in train_idx if labels[i] == 0)
+    n_pneumonia = sum(1 for i in train_idx if labels[i] == 1)
+    total       = n_normal + n_pneumonia
+    if n_normal == 0 or n_pneumonia == 0:
+        raise ValueError(
+            f"get_class_weights: training split is missing a class "
+            f"(NORMAL={n_normal}, PNEUMONIA={n_pneumonia}). "
+            "Check the train/val split and dataset."
+        )
+    w = torch.tensor(
+        [total / (2 * n_normal), total / (2 * n_pneumonia)],
+        dtype=torch.float32,
+    )
+    if device is not None:
+        w = w.to(device)
+    print(f"  Class weights: NORMAL={w[0]:.4f}  PNEUMONIA={w[1]:.4f}"
+          f"  (n_normal={n_normal}, n_pneumonia={n_pneumonia})")
+    return w
 def get_loaders(
     train_dir: str,
     test_dir:  str,
@@ -181,6 +212,7 @@ def get_loaders(
     Returns:
         train_loader, val_loader, test_loader, full_train_dataset
     """
+# ── DataLoader factory ────────────────────────────────────────────────────────
     train_ds_full = ChestXRayDataset(train_dir, transform=get_train_transform())
     val_transform_ds = ChestXRayDataset(train_dir, transform=get_eval_transform())
 
